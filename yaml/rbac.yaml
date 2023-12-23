@@ -71,6 +71,9 @@ rules:
       - secrets
     verbs:
       - create
+      - delete
+      - update
+      - patch
   - apiGroups:
       - ""
     resources:

@@ -19,18 +19,14 @@ RUN go mod download
 # # 需要把该放入的都copy进去，如果报出 package xxxxx is not in GOROOT  => 就是这个问题。
 COPY main.go main.go
 COPY pkg/ pkg/
-COPY app.yaml app.yaml
-RUN chmod 777 ./app.yaml
 # Build
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o mydbconfigoperator main.go
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o myclusterconfigoperator main.go
 
 
 FROM alpine:3.12
 WORKDIR /app
 # 需要的文件需要复制过来
-COPY --from=builder /app/mydbconfigoperator .
-COPY --from=builder /app/app.yaml .
-RUN chmod 777 /app/app.yaml
+COPY --from=builder /app/myclusterconfigoperator .
 USER 65532:65532
 
-ENTRYPOINT ["./mydbconfigoperator"]
+ENTRYPOINT ["./myclusterconfigoperator"]
