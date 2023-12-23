@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/go-logr/logr"
 	clusterconfigv1alpha1 "github.com/myoperator/clusterconfigoperator/pkg/apis/clusterconfig/v1alpha1"
+	"github.com/myoperator/clusterconfigoperator/pkg/common"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,6 +37,7 @@ func NewClusterConfigController(client client.Client, log logr.Logger, scheme *r
 // Reconcile 调协 loop
 func (r *ClusterConfigController) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 
+	// 调协时先获取该资源对象
 	clusterconfig := &clusterconfigv1alpha1.ClusterConfig{}
 	err := r.client.Get(ctx, req.NamespacedName, clusterconfig)
 	if err != nil {
@@ -47,7 +49,7 @@ func (r *ClusterConfigController) Reconcile(ctx context.Context, req reconcile.R
 		return reconcile.Result{}, nil
 	}
 
-	// 删除状态，会等到 Finalizer 字段清空后才会真正删除
+	// 处理删除状态，会等到 Finalizer 字段清空后才会真正删除
 	// 1、删除所有 ns 下资源
 	// 2、清空 Finalizer，更新状态
 	if !clusterconfig.DeletionTimestamp.IsZero() {
@@ -82,14 +84,14 @@ func (r *ClusterConfigController) Reconcile(ctx context.Context, req reconcile.R
 
 	// 区分 configmaps or secrets
 	switch clusterconfig.Spec.ConfigType {
-	case "configmaps":
+	case common.ConfigMaps:
 		// 处理 secrets 类型
 		err = r.handleConfigmaps(clusterconfig)
 		if err != nil {
 			return reconcile.Result{}, err
 		}
 		// 处理 configmaps 类型
-	case "secrets":
+	case common.Secrets:
 		// 处理 secrets 类型
 		err = r.handleSecrets(clusterconfig)
 		if err != nil {
@@ -97,13 +99,12 @@ func (r *ClusterConfigController) Reconcile(ctx context.Context, req reconcile.R
 		}
 	}
 
-	klog.Info(clusterconfig)
-
 	klog.Info("successful reconcile")
 
 	return reconcile.Result{}, nil
 }
 
+// deleteResource 清理资源对象逻辑
 func (r *ClusterConfigController) deleteResource(clusterConfig *clusterconfigv1alpha1.ClusterConfig) error {
 	// 1. 先分割出目标 namespace
 	namespaceList := splitString(clusterConfig.Spec.NamespaceList, ",")
@@ -116,7 +117,7 @@ func (r *ClusterConfigController) deleteResource(clusterConfig *clusterconfigv1a
 	for _, namespace := range namespaceList {
 
 		switch clusterConfig.Spec.ConfigType {
-		case "configmaps":
+		case common.ConfigMaps:
 			toConfigMap := &v1.ConfigMap{}
 			err := r.client.Get(context.Background(), client.ObjectKey{Name: clusterConfig.Name, Namespace: namespace}, toConfigMap)
 			if err != nil {
@@ -133,7 +134,7 @@ func (r *ClusterConfigController) deleteResource(clusterConfig *clusterconfigv1a
 				klog.Error(err, "[toConfigMap] Failed to delete")
 				return err
 			}
-		case "secrets":
+		case common.Secrets:
 			toSecret := &v1.Secret{}
 			err := r.client.Get(context.Background(), client.ObjectKey{Name: clusterConfig.Name, Namespace: namespace}, toSecret)
 			if err != nil {
@@ -164,6 +165,7 @@ func (r *ClusterConfigController) deleteResource(clusterConfig *clusterconfigv1a
 	return nil
 }
 
+// handleConfigmaps 处理 configmaps 资源对象
 func (r *ClusterConfigController) handleConfigmaps(clusterConfig *clusterconfigv1alpha1.ClusterConfig) error {
 
 	// 1. 先分割出目标 namespace
@@ -210,6 +212,7 @@ func (r *ClusterConfigController) handleConfigmaps(clusterConfig *clusterconfigv
 	return nil
 }
 
+// handleSecrets 处理 secrets 资源对象
 func (r *ClusterConfigController) handleSecrets(clusterConfig *clusterconfigv1alpha1.ClusterConfig) error {
 	a := make(map[string][]byte, 0)
 
@@ -275,7 +278,6 @@ func (r *ClusterConfigController) handleSecrets(clusterConfig *clusterconfigv1al
 }
 
 func newSecret(clusterConfig *clusterconfigv1alpha1.ClusterConfig, namespace string, secretData map[string][]byte) *v1.Secret {
-
 	toSecret := &v1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      clusterConfig.Name,
@@ -283,12 +285,10 @@ func newSecret(clusterConfig *clusterconfigv1alpha1.ClusterConfig, namespace str
 		},
 		Data: secretData,
 	}
-
 	return toSecret
 }
 
 func newConfigMap(clusterConfig *clusterconfigv1alpha1.ClusterConfig, namespace string) *v1.ConfigMap {
-
 	toSecret := &v1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      clusterConfig.Name,
@@ -296,20 +296,20 @@ func newConfigMap(clusterConfig *clusterconfigv1alpha1.ClusterConfig, namespace 
 		},
 		Data: clusterConfig.Spec.Data,
 	}
-
 	return toSecret
 }
 
 func splitString(input, separator string) []string {
 	// 去除空格
 	input = strings.ReplaceAll(input, " ", "")
-
 	// 使用 strings.Split 进行分割
 	result := strings.Split(input, separator)
+	// 排序
 	sort.StringSlice(result).Sort()
 	return result
 }
 
+// 查找是否含有 Finalizer 字段
 func containsFinalizer(clusterconfig *clusterconfigv1alpha1.ClusterConfig, namespaceList []string) []string {
 	needToAddFinalizer := make([]string, 0)
 
