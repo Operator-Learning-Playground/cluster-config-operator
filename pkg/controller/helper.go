@@ -20,6 +20,11 @@ func (r *ClusterConfigController) deleteResource(clusterConfig *clusterconfigv1a
 	// 1. 先分割出目标 namespace
 	namespaceList := splitString(clusterConfig.Spec.NamespaceList, ",")
 
+	// 处理 namespace 字段为 "all"时的逻辑
+	if len(namespaceList) == 1 && namespaceList[0] == "all" {
+		return r.deleteResourceForAllNamespace(clusterConfig)
+	}
+
 	// 2. 遍历 namespace
 	// 先去各个 namespace 查找是否存在，
 	// 如果不存在，则创建，
@@ -76,12 +81,129 @@ func (r *ClusterConfigController) deleteResource(clusterConfig *clusterconfigv1a
 	return nil
 }
 
+// deleteResource 清理资源对象逻辑
+// FIXME: 可以抽象出来，冗于代码太多了
+func (r *ClusterConfigController) deleteResourceForAllNamespace(clusterConfig *clusterconfigv1alpha1.ClusterConfig) error {
+	klog.Infof("delete cluster config for all namespace...")
+	clusterNamespaceList := v1.NamespaceList{}
+	err := r.client.List(context.Background(), &clusterNamespaceList)
+	if err != nil {
+		return err
+	}
+
+	// 2. 遍历 namespace
+	// 先去各个 namespace 查找是否存在，
+	// 如果不存在，则创建，
+	// 如果已经存在，则比较 data 字段是否一致，如果不一致则修改
+	// FIXME: 注意这里会有一种情况：就是修改 namespaceList 结果该删除的未删除的情况
+	for _, namespace := range clusterNamespaceList.Items {
+
+		switch clusterConfig.Spec.ConfigType {
+		case common.ConfigMaps:
+			toConfigMap := &v1.ConfigMap{}
+			err := r.client.Get(context.Background(), client.ObjectKey{Name: clusterConfig.Name, Namespace: namespace.Name}, toConfigMap)
+			if err != nil {
+				if errors.IsNotFound(err) {
+
+					klog.Info("[toConfigMap] notfound ")
+					return nil
+				}
+				klog.Error(err, "[toConfigMap] Failed to get")
+				return err
+			}
+			err = r.client.Delete(context.Background(), toConfigMap)
+			if err != nil {
+				klog.Error(err, "[toConfigMap] Failed to delete")
+				return err
+			}
+		case common.Secrets:
+			toSecret := &v1.Secret{}
+			err := r.client.Get(context.Background(), client.ObjectKey{Name: clusterConfig.Name, Namespace: namespace.Name}, toSecret)
+			if err != nil {
+				if errors.IsNotFound(err) {
+
+					klog.Info("[toSecret] notfound ")
+					return nil
+				}
+				klog.Error(err, "[toSecret] Failed to get")
+				return err
+			}
+			err = r.client.Delete(context.Background(), toSecret)
+			if err != nil {
+				klog.Error(err, "[toSecret] Failed to delete")
+				return err
+			}
+		}
+	}
+
+	// 清理完成后，从 Finalizers 中移除 Finalizer
+	controllerutil.RemoveFinalizer(clusterConfig, "all")
+	err = r.client.Update(context.Background(), clusterConfig)
+	if err != nil {
+		klog.Error("clean clusterConfig finalizer err: ", err)
+		return err
+	}
+
+	return nil
+}
+
+// FIXME: 可以抽象出来，冗于代码太多了
+func (r *ClusterConfigController) handleNamespaceIsAllForConfigmaps(clusterConfig *clusterconfigv1alpha1.ClusterConfig) error {
+	klog.Infof("create cluster config for all namespace...")
+	clusterNamespaceList := v1.NamespaceList{}
+	err := r.client.List(context.Background(), &clusterNamespaceList)
+	if err != nil {
+		return err
+	}
+
+	for _, namespace := range clusterNamespaceList.Items {
+		klog.Infof("namespace to create configmaps: %v\n", namespace)
+		toConfigMap := &v1.ConfigMap{}
+		err := r.client.Get(context.Background(), client.ObjectKey{Name: clusterConfig.Name, Namespace: namespace.Name}, toConfigMap)
+		if err != nil {
+			if errors.IsNotFound(err) {
+				toConfigMap = newConfigMap(clusterConfig, namespace.Name)
+
+				err = r.client.Create(context.Background(), toConfigMap, &client.CreateOptions{})
+				if err != nil {
+					klog.Errorf("[toConfigMap] in [%v] namespace Failed to create error: %v\n", namespace, err)
+					return err
+				}
+				klog.Infof("[toConfigMap] Created in [%v] namespace\n", namespace)
+			} else {
+				klog.Errorf("[toConfigMap] Failed to get in [%v] namespace, error: %v", namespace, err)
+				return err
+			}
+		}
+
+		// Update toSecret data if data is changed.
+		if !reflect.DeepEqual(toConfigMap.Data, clusterConfig.Spec.Data) {
+			toConfigMap.Data = clusterConfig.Spec.Data
+			err = r.client.Update(context.Background(), toConfigMap, &client.UpdateOptions{})
+			if err != nil {
+				klog.Errorf("[toConfigMap] in [%v] namespace Failed to update error: %v\n", namespace, err)
+				return err
+			}
+			klog.Infof("[toConfigMap] Updated with clusterConfig.Spec.Data in [%v] namespace\n", namespace)
+		}
+
+	}
+
+	return nil
+}
+
 // handleConfigmaps 处理 configmaps 资源对象
 func (r *ClusterConfigController) handleConfigmaps(clusterConfig *clusterconfigv1alpha1.ClusterConfig) error {
 
 	// 1. 先分割出目标 namespace
 	namespaceList := splitString(clusterConfig.Spec.NamespaceList, ",")
 	klog.Infof("namespace list: %v\n", namespaceList)
+
+	// 处理 namespace 字段为 "all"时的逻辑
+	if len(namespaceList) == 1 && namespaceList[0] == "all" {
+		return r.handleNamespaceIsAllForConfigmaps(clusterConfig)
+	}
+
 	// 2. 遍历 namespace
 	// 先去各个 namespace 查找是否存在，
 	// 如果不存在，则创建，
@@ -105,7 +227,6 @@ func (r *ClusterConfigController) handleConfigmaps(clusterConfig *clusterconfigv
 				klog.Errorf("[toConfigMap] Failed to get in [%v] namespace, error: %v", namespace, err)
 				return err
 			}
-
 		}
 
 		// Update toSecret data if data is changed.
@@ -117,6 +238,59 @@ func (r *ClusterConfigController) handleConfigmaps(clusterConfig *clusterconfigv
 				return err
 			}
 			klog.Infof("[toConfigMap] Updated with clusterConfig.Spec.Data in [%v] namespace\n", namespace)
+		}
+
+	}
+
+	return nil
+}
+
+// FIXME: 可以抽象出来，冗于代码太多了
+func (r *ClusterConfigController) handleNamespaceIsAllForSecrets(clusterConfig *clusterconfigv1alpha1.ClusterConfig, a map[string][]byte) error {
+	klog.Infof("create cluster config for all namespace...")
+	clusterNamespaceList := v1.NamespaceList{}
+	err := r.client.List(context.Background(), &clusterNamespaceList)
+	if err != nil {
+		return err
+	}
+
+	for _, namespace := range clusterNamespaceList.Items {
+		klog.Infof("namespace to create secret: %v\n", namespace)
+		toSecret := &v1.Secret{}
+		err := r.client.Get(context.Background(), client.ObjectKey{Name: clusterConfig.Name, Namespace: namespace.Name}, toSecret)
+		if err != nil {
+			if errors.IsNotFound(err) {
+				toSecret = newSecret(clusterConfig, namespace.Namespace, a)
+
+				// FIXME: cross-namespace owner references are disallowed, owner's namespace default, obj's namespace test[toSecret] Failed to set controller reference
+				//err := controllerutil.SetControllerReference(clusterConfig, toSecret, r.Scheme)
+				//if err != nil {
+				//	klog.Error(err, "[toSecret] Failed to set controller reference")
+				//	return err
+				//}
+
+				err = r.client.Create(context.Background(), toSecret, &client.CreateOptions{})
+				if err != nil {
+					klog.Errorf("[toSecret] in [%v] namespace Failed to create error: %v\n", namespace, err)
+					return err
+				}
+				klog.Infof("[toSecret] Created in [%v] namespace\n", namespace)
+			} else {
+				klog.Errorf("[toSecret] Failed to get in [%v] namespace, error: %v", namespace, err)
+				return err
+			}
+		}
+
+		// Update toSecret data if data is changed.
+		if !reflect.DeepEqual(toSecret.Data, a) {
+			toSecret.Data = a
+			err = r.client.Update(context.Background(), toSecret, &client.UpdateOptions{})
+			if err != nil {
+				klog.Errorf("[toSecret] in [%v] namespace Failed to update error: %v\n", namespace, err)
+				return err
+			}
+			klog.Infof("[toSecret] Updated with clusterConfig.Spec.Data in [%v] namespace\n", namespace)
+
 		}
 
 	}
@@ -136,6 +310,12 @@ func (r *ClusterConfigController) handleSecrets(clusterConfig *clusterconfigv1al
 	// 1. 先分割出目标 namespace
 	namespaceList := splitString(clusterConfig.Spec.NamespaceList, ",")
 	klog.Infof("namespace list: %v\n", namespaceList)
+
+	// 处理 namespace 字段为 "all"时的逻辑
+	if len(namespaceList) == 1 && namespaceList[0] == "all" {
+		return r.handleNamespaceIsAllForSecrets(clusterConfig, a)
+	}
+
 	// 2. 遍历 namespace
 	// 先去各个 namespace 查找是否存在，
 	// 如果不存在，则创建，
@@ -244,4 +424,3 @@ func containsFinalizer(clusterconfig *clusterconfigv1alpha1.ClusterConfig, names
 
 	return needToAddFinalizer
 }
-
