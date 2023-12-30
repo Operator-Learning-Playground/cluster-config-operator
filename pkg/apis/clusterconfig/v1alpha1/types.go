@@ -14,7 +14,8 @@ type ClusterConfig struct {
 
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec ClusterConfigSpec `json:"spec,omitempty"`
+	Spec   ClusterConfigSpec   `json:"spec,omitempty"`
+	Status ClusterConfigStatus `json:"status,omitempty"`
 }
 
 type ClusterConfigSpec struct {
@@ -22,6 +23,10 @@ type ClusterConfigSpec struct {
 	ConfigType    string            `json:"configType,omitempty"`
 	Data          map[string]string `json:"data,omitempty"`
 	Type          v1.SecretType     `json:"type,omitempty"`
+}
+
+type ClusterConfigStatus struct {
+	ProcessedNamespace []string `json:"processedNamespace"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

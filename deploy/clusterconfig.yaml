@@ -13,6 +13,14 @@ spec:
       served: true
       #是否是存储版本
       storage: true
+      # kubectl get clusterconfig 显示的字段
+      additionalPrinterColumns:
+        - name: NamespaceList
+          type: string
+          jsonPath: .status.processedNamespace
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
       schema:
         openAPIV3Schema:
           type: object

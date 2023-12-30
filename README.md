@@ -15,6 +15,7 @@ spec:
   configType: configmaps          # 支持 k8s 中 configmaps secrets 资源对象，需要自行设置
   namespaceList: default,test     # 支持填入多个 namespace, ex: default, example1, example2 写法，请用逗号隔开，
                                   # 在填写后请确定此 namespace 确实存在，否则会报错
+                                  # 支持 all 字段，默认会在所有 namespace 下都创建该类型资源
   # 按照 k8s 原生的 configmaps secrets 填写即可
   data:
     player_initial_lives: "3"
@@ -51,13 +52,13 @@ Step 2/15 : WORKDIR /app
 ...
 ```
 2. apply crd 资源
-```yaml
+```bash
 [root@VM-0-16-centos clusterconfigoperator]#
 [root@VM-0-16-centos clusterconfigoperator]# kubectl apply -f yaml/clusterconfig.yaml
 customresourcedefinition.apiextensions.k8s.io/clusterconfigs.api.practice.com unchanged
 ```
 3. 启动 controller 服务(需要先执行 rbac.yaml，否则服务会报错)
-```yaml
+```bash
 [root@VM-0-16-centos clusterconfigoperator]# kubectl apply -f yaml/rbac.yaml
 serviceaccount/myclusterconfig-sa unchanged
 clusterrole.rbac.authorization.k8s.io/myclusterconfig-clusterrole unchanged
@@ -66,7 +67,7 @@ clusterrolebinding.rbac.authorization.k8s.io/myclusterconfig-ClusterRoleBinding 
 deployment.apps/myclusterconfig-controller unchanged
 ```
 4. 查看 operator 服务
-```yaml
+```bash
 [root@VM-0-16-centos clusterconfigoperator]# kubectl logs myclusterconfig-controller-6689489dbd-hp4vr
 I1224 04:12:00.022968       1 init_k8s_config.go:15] run in the cluster
 {"level":"info","ts":"2023-12-24T04:12:00Z","logger":"controller-runtime.metrics","msg":"Metrics server is starting to listen","addr":":8080"}
