@@ -2,10 +2,13 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"github.com/go-logr/logr"
 	clusterconfigv1alpha1 "github.com/myoperator/clusterconfigoperator/pkg/apis/clusterconfig/v1alpha1"
 	"github.com/myoperator/clusterconfigoperator/pkg/common"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -14,16 +17,19 @@ import (
 )
 
 type ClusterConfigController struct {
-	client client.Client
-	Scheme *runtime.Scheme
-	log    logr.Logger
+	// 增加事件通知器
+	client        client.Client
+	Scheme        *runtime.Scheme
+	log           logr.Logger
+	EventRecorder record.EventRecorder
 }
 
-func NewClusterConfigController(client client.Client, log logr.Logger, scheme *runtime.Scheme) *ClusterConfigController {
+func NewClusterConfigController(client client.Client, log logr.Logger, scheme *runtime.Scheme, eventRecorder record.EventRecorder) *ClusterConfigController {
 	return &ClusterConfigController{
-		client: client,
-		log:    log,
-		Scheme: scheme,
+		client:        client,
+		log:           log,
+		Scheme:        scheme,
+		EventRecorder: eventRecorder,
 	}
 }
 
@@ -76,13 +82,14 @@ func (r *ClusterConfigController) Reconcile(ctx context.Context, req reconcile.R
 		err := r.deleteResourceByNamespace(ctx, clusterconfig, resList)
 		if err != nil {
 			klog.Error(err, "delete resource: ", clusterconfig.GetName()+"/"+clusterconfig.GetNamespace(), " failed")
-			//mc.EventRecorder.Event(rr, corev1.EventTypeWarning, "Delete", fmt.Sprintf("delete %s fail", rr.Name))
+			r.EventRecorder.Eventf(clusterconfig, v1.EventTypeWarning, "Delete", fmt.Sprintf("delete %s clusterConfig error: %s", clusterconfig.Name, err.Error()))
 			return reconcile.Result{Requeue: true, RequeueAfter: time.Second * 60}, err
 		}
 		// 更新 status 字段
 		clusterconfig.Status.ProcessedNamespace = namespaceList
 		err = r.client.Status().Update(ctx, clusterconfig)
 		if err != nil {
+			r.EventRecorder.Eventf(clusterconfig, v1.EventTypeWarning, "UpdateStatus", fmt.Sprintf("update %s clusterConfig status error: %s", clusterconfig.Name, err.Error()))
 			klog.Error("update clusterconfig status err: ", err)
 			return reconcile.Result{Requeue: true, RequeueAfter: time.Second * 60}, err
 		}
@@ -98,6 +105,7 @@ func (r *ClusterConfigController) Reconcile(ctx context.Context, req reconcile.R
 			err = r.client.Update(ctx, clusterconfig)
 			if err != nil {
 				klog.Error("update clusterconfig finalizer err: ", err)
+				r.EventRecorder.Eventf(clusterconfig, v1.EventTypeWarning, "UpdateStatus", fmt.Sprintf("update %s clusterConfig finalizer error: %s", clusterconfig.Name, err.Error()))
 				return reconcile.Result{Requeue: true, RequeueAfter: time.Second * 60}, err
 			}
 		}
@@ -110,6 +118,7 @@ func (r *ClusterConfigController) Reconcile(ctx context.Context, req reconcile.R
 		// 处理 secrets 类型
 		err = r.handleConfigmaps(ctx, clusterconfig)
 		if err != nil {
+			r.EventRecorder.Eventf(clusterconfig, v1.EventTypeWarning, "Handle", fmt.Sprintf("handle %s clusterConfig configmap error: %s", clusterconfig.Name, err.Error()))
 			return reconcile.Result{Requeue: true, RequeueAfter: time.Second * 60}, err
 		}
 		// 处理 configmaps 类型
@@ -117,6 +126,7 @@ func (r *ClusterConfigController) Reconcile(ctx context.Context, req reconcile.R
 		// 处理 secrets 类型
 		err = r.handleSecrets(ctx, clusterconfig)
 		if err != nil {
+			r.EventRecorder.Eventf(clusterconfig, v1.EventTypeWarning, "Handle", fmt.Sprintf("handle %s clusterConfig secrets error: %s", clusterconfig.Name, err.Error()))
 			return reconcile.Result{Requeue: true, RequeueAfter: time.Second * 60}, err
 		}
 	}
@@ -125,6 +135,7 @@ func (r *ClusterConfigController) Reconcile(ctx context.Context, req reconcile.R
 	clusterconfig.Status.ProcessedNamespace = namespaceList
 	err = r.client.Status().Update(ctx, clusterconfig)
 	if err != nil {
+		r.EventRecorder.Eventf(clusterconfig, v1.EventTypeWarning, "UpdateStatus", fmt.Sprintf("update %s clusterConfig status error: %s", clusterconfig.Name, err.Error()))
 		klog.Error("update clusterconfig status err: ", err)
 		return reconcile.Result{Requeue: true, RequeueAfter: time.Second * 60}, err
 	}

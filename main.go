@@ -44,7 +44,7 @@ func main() {
 	}
 
 	// 3. 控制器相关
-	clusterConfigCtl := controller.NewClusterConfigController(mgr.GetClient(), mgr.GetLogger(), mgr.GetScheme())
+	clusterConfigCtl := controller.NewClusterConfigController(mgr.GetClient(), mgr.GetLogger(), mgr.GetScheme(), mgr.GetEventRecorderFor("cluster-config-recorder"))
 
 	err = builder.ControllerManagedBy(mgr).For(&clusterconfigv1alpha1.ClusterConfig{}).Complete(clusterConfigCtl)
 
