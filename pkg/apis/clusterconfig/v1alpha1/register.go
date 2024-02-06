@@ -7,8 +7,10 @@ import (
 )
 
 const (
-	ClusterConfigGroup   = "api.practice.com"
-	ClusterConfigVersion = "v1alpha1"
+	ClusterConfigGroup      = "api.practice.com"
+	ClusterConfigVersion    = "v1alpha1"
+	ClusterConfigKind       = "ClusterConfig"
+	ClusterConfigApiVersion = "api.practice.com/v1alpha1"
 )
 
 // SchemeGroupVersion is group version used to register these objects

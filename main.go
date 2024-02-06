@@ -4,14 +4,17 @@ import (
 	clusterconfigv1alpha1 "github.com/myoperator/clusterconfigoperator/pkg/apis/clusterconfig/v1alpha1"
 	"github.com/myoperator/clusterconfigoperator/pkg/controller"
 	"github.com/myoperator/clusterconfigoperator/pkg/k8sconfig"
+	v1 "k8s.io/api/core/v1"
 	_ "k8s.io/code-generator"
 	"k8s.io/klog/v2"
 	"os"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 	"time"
 )
 
@@ -46,7 +49,18 @@ func main() {
 	// 3. 控制器相关
 	clusterConfigCtl := controller.NewClusterConfigController(mgr.GetClient(), mgr.GetLogger(), mgr.GetScheme(), mgr.GetEventRecorderFor("cluster-config-recorder"))
 
-	err = builder.ControllerManagedBy(mgr).For(&clusterconfigv1alpha1.ClusterConfig{}).Complete(clusterConfigCtl)
+	err = builder.ControllerManagedBy(mgr).For(&clusterconfigv1alpha1.ClusterConfig{}).
+		Watches(&source.Kind{Type: &v1.ConfigMap{}},
+			handler.Funcs{
+				UpdateFunc: clusterConfigCtl.OnUpdateConfigHandlerByClusterConfig,
+				DeleteFunc: clusterConfigCtl.OnDeleteConfigHandlerByClusterConfig,
+			}).
+		Watches(&source.Kind{Type: &v1.Secret{}},
+			handler.Funcs{
+				UpdateFunc: clusterConfigCtl.OnUpdateConfigHandlerByClusterConfig,
+				DeleteFunc: clusterConfigCtl.OnDeleteConfigHandlerByClusterConfig,
+			}).
+		Complete(clusterConfigCtl)
 
 	errC := make(chan error)
 

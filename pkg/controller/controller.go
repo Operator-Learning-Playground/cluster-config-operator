@@ -8,10 +8,13 @@ import (
 	"github.com/myoperator/clusterconfigoperator/pkg/common"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"time"
 )
@@ -143,4 +146,29 @@ func (r *ClusterConfigController) Reconcile(ctx context.Context, req reconcile.R
 	klog.Info("successful reconcile")
 
 	return reconcile.Result{}, nil
+}
+
+func (r *ClusterConfigController) OnUpdateConfigHandlerByClusterConfig(event event.UpdateEvent, limitingInterface workqueue.RateLimitingInterface) {
+	for _, ref := range event.ObjectNew.GetOwnerReferences() {
+		if ref.Kind == clusterconfigv1alpha1.ClusterConfigKind && ref.APIVersion == clusterconfigv1alpha1.ClusterConfigApiVersion {
+			// 重新放入 Reconcile 调协方法
+			limitingInterface.Add(reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name: ref.Name, Namespace: event.ObjectNew.GetNamespace(),
+				},
+			})
+		}
+	}
+}
+
+func (r *ClusterConfigController) OnDeleteConfigHandlerByClusterConfig(event event.DeleteEvent, limitingInterface workqueue.RateLimitingInterface) {
+	for _, ref := range event.Object.GetOwnerReferences() {
+		if ref.Kind == clusterconfigv1alpha1.ClusterConfigKind && ref.APIVersion == clusterconfigv1alpha1.ClusterConfigApiVersion {
+			// 重新入列
+			klog.Info("delete pod: ", event.Object.GetName(), event.Object.GetObjectKind())
+			limitingInterface.Add(reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: ref.Name,
+					Namespace: event.Object.GetNamespace()}})
+		}
+	}
 }

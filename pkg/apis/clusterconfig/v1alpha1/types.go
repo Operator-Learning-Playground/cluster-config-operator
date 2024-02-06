@@ -19,13 +19,18 @@ type ClusterConfig struct {
 }
 
 type ClusterConfigSpec struct {
-	NamespaceList string            `json:"namespaceList,omitempty"`
-	ConfigType    string            `json:"configType,omitempty"`
-	Data          map[string]string `json:"data,omitempty"`
-	Type          v1.SecretType     `json:"type,omitempty"`
+	// NamespaceList namespace 列表
+	NamespaceList string `json:"namespaceList,omitempty"`
+	// ConfigType 配置文件类型：支持 configmaps secrets
+	ConfigType string `json:"configType,omitempty"`
+	// Data 用于存储配置
+	Data map[string]string `json:"data,omitempty"`
+	Type v1.SecretType     `json:"type,omitempty"`
 }
 
+// ClusterConfigStatus status 状态
 type ClusterConfigStatus struct {
+	// ProcessedNamespace 记录已经执行完的 namespace
 	ProcessedNamespace []string `json:"processedNamespace"`
 }
 
